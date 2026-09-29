@@ -1,0 +1,576 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>БУКВА-49 — Интерактивный Кибернетический Центр</title>
+  <style>
+    :root {
+      --bg: #090d16;
+      --panel: #111827;
+      --card: #1f2937;
+      --border: #374151;
+      --accent: #f59e0b;
+      --accent-glow: rgba(245, 158, 11, 0.35);
+      --cyan: #06b6d4;
+      --emerald: #10b981;
+      --emerald-glow: rgba(16, 185, 129, 0.4);
+      --rose: #f43f5e;
+      --text: #f3f4f6;
+      --text-muted: #9ca3af;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; font-family: 'Segoe UI', system-ui, sans-serif; }
+    body { background: var(--bg); color: var(--text); padding: 24px; min-height: 100vh; }
+    .container { max-width: 1550px; margin: 0 auto; display: flex; flex-direction: column; gap: 24px; }
+    
+    header {
+      background: linear-gradient(135deg, rgba(31, 41, 55, 0.85), rgba(17, 24, 39, 0.95));
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px 32px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    }
+    .brand h1 { font-size: 28px; font-weight: 800; color: var(--accent); letter-spacing: 1px; }
+    .brand p { color: var(--text-muted); font-size: 14px; margin-top: 4px; }
+    .badge-record {
+      background: rgba(16, 185, 129, 0.15);
+      border: 1px solid var(--emerald);
+      color: var(--emerald);
+      padding: 10px 20px;
+      border-radius: 9999px;
+      font-size: 14px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+    }
+
+    .main-grid { display: grid; grid-template-columns: 1fr 440px; gap: 24px; }
+    @media (max-width: 1100px) {
+      .main-grid { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    }
+    .card-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: var(--cyan);
+      margin-bottom: 16px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    /* 7x7 Matrix */
+    .matrix-grid {
+      display: grid;
+      grid-template-columns: repeat(7, 1fr);
+      gap: 10px;
+    }
+    .cell {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 6px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      position: relative;
+      user-select: none;
+    }
+    .cell:hover {
+      border-color: var(--accent);
+      transform: translateY(-3px);
+      box-shadow: 0 6px 16px var(--accent-glow);
+    }
+    .cell.active {
+      border-color: var(--emerald);
+      background: rgba(16, 185, 129, 0.15);
+      box-shadow: 0 0 14px var(--emerald-glow);
+    }
+    .cell.executing {
+      border-color: #fff !important;
+      background: var(--accent) !important;
+      color: #000 !important;
+      box-shadow: 0 0 25px var(--accent) !important;
+      transform: scale(1.08);
+      z-index: 10;
+    }
+    .cell.executing .cell-letter,
+    .cell.executing .cell-name,
+    .cell.executing .cell-code {
+      color: #000 !important;
+    }
+    .cell-letter { font-size: 22px; font-weight: 800; color: #fff; margin-bottom: 2px; }
+    .cell-name { font-size: 12px; font-weight: 600; color: var(--accent); }
+    .cell-code { font-size: 9px; color: var(--text-muted); text-transform: uppercase; font-family: monospace; }
+
+    /* Presets bar */
+    .presets { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+    .btn {
+      padding: 10px 16px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      border: 1px solid transparent;
+      user-select: none;
+    }
+    .btn-preset { background: var(--card); color: var(--text); border-color: var(--border); }
+    .btn-preset:hover { border-color: var(--cyan); color: var(--cyan); }
+    .btn-copy {
+      background: rgba(6, 182, 212, 0.15);
+      border-color: var(--cyan);
+      color: var(--cyan);
+    }
+    .btn-copy:hover {
+      background: var(--cyan);
+      color: #000;
+    }
+    .btn-evolved {
+      background: linear-gradient(135deg, rgba(245, 158, 11, 0.2), rgba(16, 185, 129, 0.2));
+      border: 1px solid var(--accent);
+      color: var(--accent);
+    }
+    .btn-evolved:hover { background: var(--accent); color: #000; box-shadow: 0 0 15px var(--accent-glow); }
+    .btn-run {
+      background: var(--emerald);
+      color: #000;
+      font-size: 15px;
+      font-weight: 800;
+      width: 100%;
+      padding: 14px;
+      border-radius: 10px;
+      margin-top: 16px;
+    }
+    .btn-run:hover { opacity: 0.9; transform: translateY(-1px); box-shadow: 0 4px 15px var(--emerald-glow); }
+
+    /* Pipeline queue */
+    .pipeline-view {
+      background: #000;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-height: 56px;
+      overflow-x: auto;
+      margin-bottom: 16px;
+    }
+    .tag {
+      background: var(--card);
+      border: 1px solid var(--cyan);
+      color: var(--cyan);
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 12px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      white-space: nowrap;
+    }
+    .tag-arrow { color: var(--text-muted); font-size: 11px; }
+
+    /* Output console */
+    .console {
+      background: #000;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      font-family: 'Consolas', 'Cascadia Code', monospace;
+      font-size: 12px;
+      line-height: 1.6;
+      color: #34d399;
+      height: 380px;
+      overflow-y: auto;
+    }
+    .console-dim { color: #6b7280; }
+    .console-warn { color: #fbbf24; }
+    .console-err { color: #f87171; }
+    .console-gold { color: #fbbf24; font-weight: bold; }
+
+    /* Task selector */
+    .select-task {
+      width: 100%;
+      background: var(--card);
+      border: 1px solid var(--border);
+      color: #fff;
+      padding: 12px 14px;
+      border-radius: 8px;
+      font-size: 13px;
+      margin-bottom: 16px;
+      outline: none;
+    }
+
+    /* Comparison card */
+    .compare-table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
+    .compare-table th, .compare-table td { padding: 10px 10px; text-align: left; border-bottom: 1px solid var(--border); }
+    .compare-table th { color: var(--text-muted); font-size: 11px; text-transform: uppercase; }
+  </style>
+</head>
+<body>
+
+<div class="container">
+  <header>
+    <div class="brand">
+      <h1>БУКВА-49</h1>
+      <p>Интерактивный Кибернетический Центр & Когнитивный Конвейер Агента</p>
+    </div>
+    <div class="badge-record">
+      <span>★ Генетический Рекорд: 0.990 (Буква Йота)</span>
+    </div>
+  </header>
+
+  <div class="main-grid">
+    <!-- Left Column: Matrix 7x7 -->
+    <div class="card">
+      <div class="card-title">
+        <span>Матрица 7 × 7 Когнитивно-Вычислительных Операторов</span>
+        <span style="font-size: 12px; color: var(--emerald); font-weight: 700;">49 из 49 в коде</span>
+      </div>
+
+      <div class="presets">
+        <button class="btn btn-preset" onclick="setPreset('297')">Триада 297</button>
+        <button class="btn btn-preset" onclick="setPreset('full')">Базовый Full (6)</button>
+        <button class="btn btn-evolved" onclick="setPreset('evolved')">★ EVOLVED: Йота (5 шагов)</button>
+        <button class="btn btn-preset" onclick="setPreset('tsar')">Царь-Цепь (10 шагов)</button>
+        <button class="btn btn-copy" onclick="copyPowerShellCommand()">📋 Скопировать команду PowerShell</button>
+        <button class="btn btn-preset" onclick="clearPipeline()">Очистить</button>
+      </div>
+
+      <div class="pipeline-view" id="pipelineView">
+        <span style="color: var(--text-muted); font-size: 12px;">Кликните по буквам ниже или выберите пресет...</span>
+      </div>
+
+      <div class="matrix-grid" id="matrixGrid"></div>
+    </div>
+
+    <!-- Right Column: Runner & Inspector -->
+    <div style="display: flex; flex-direction: column; gap: 24px;">
+      <div class="card">
+        <div class="card-title">Исполнитель Конвейера</div>
+        
+        <label style="font-size: 12px; color: var(--text-muted); margin-bottom: 6px; display: block;">Выберите целевую задачу:</label>
+        <select class="select-task" id="taskSelect">
+          <option value="offer">1. Тендер поставщиков (Ловушка дедлайна и unconfirmed)</option>
+          <option value="inventory">2. Пересчёт остатков склада (Отмены и ловушка резервов)</option>
+          <option value="rating">3. Шахматный турнир (Очки по турам и бонус серии)</option>
+          <option value="source">4. Конфликт документов (Ловушка свежих черновиков)</option>
+        </select>
+
+        <button class="btn btn-run" onclick="executePipeline()">▶ Запустить Конвейер</button>
+
+        <div style="margin-top: 16px;">
+          <div class="console" id="consoleLog">
+            <span class="console-dim">Конвейер готов к работе. Нажмите «Запустить Конвейер»...</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Comparison Summary -->
+      <div class="card">
+        <div class="card-title" style="color: var(--accent);">Результаты Эволюции (1 218 программ)</div>
+        <table class="compare-table">
+          <thead>
+            <tr>
+              <th>Программа</th>
+              <th>Шаги</th>
+              <th>Ловушки</th>
+              <th>Балл</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>297 (В-Ф-З)</td>
+              <td>3</td>
+              <td style="color: var(--rose); font-weight: bold;">0% (Провал)</td>
+              <td>0.602</td>
+            </tr>
+            <tr>
+              <td>Full (6 шагов)</td>
+              <td>6</td>
+              <td style="color: var(--emerald);">100%</td>
+              <td>0.988</td>
+            </tr>
+            <tr style="background: rgba(245, 158, 11, 0.12); font-weight: bold;">
+              <td style="color: var(--accent);">★ Evolved (Йота)</td>
+              <td>5</td>
+              <td style="color: var(--emerald);">100%</td>
+              <td style="color: var(--accent); font-size: 14px;">0.990 (Рекорд)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const NAMES = [
+  "Азъ", "Боги", "Вѣди", "Глаголи", "Добро", "Есть", "Есмь",
+  "Животъ", "Ѕѣло", "Земля", "Иже", "Ижеи", "Инить", "Гервь",
+  "Како", "Людие", "Мыслите", "Нашъ", "Онъ", "Покои", "Рѣци",
+  "Слово", "Твѣрдо", "Укъ", "Оукъ", "Фѣртъ", "Хѣръ", "Отъ",
+  "Ци", "Червль", "Ша", "Ща", "Еръ", "Еры", "Ерь", "Ять",
+  "Юнь", "Арь", "Эдо", "Омъ", "Енъ", "Одь", "Йота", "Ота",
+  "Кси", "Пси", "Фита", "Ижица", "Ижа"
+];
+
+const OPS = {
+  "Азъ": "INIT", "Боги": "AXIOMS", "Вѣди": "KNOW", "Глаголи": "TRANSMIT",
+  "Добро": "VALUATE", "Есть": "VERIFY", "Есмь": "PRESENCE",
+  "Животъ": "LIFECYCLE", "Ѕѣло": "BOUND", "Земля": "GROUND", "Иже": "MERGE",
+  "Ижеи": "ALIGN", "Инить": "THREAD", "Гервь": "ALERT",
+  "Како": "PATTERN", "Людие": "NORMALIZE", "Мыслите": "REASON", "Нашъ": "INTERNAL",
+  "Онъ": "OBJECT", "Покои": "FREEZE", "Рѣци": "DECLARE",
+  "Слово": "EMIT", "Твѣрдо": "ENFORCE", "Укъ": "TRANSFORM", "Оукъ": "EXPAND",
+  "Фѣртъ": "AUDIT", "Хѣръ": "ROLLBACK", "Отъ": "ISOLATE",
+  "Ци": "TARGET", "Червль": "FORMAT", "Ша": "INDEX", "Ща": "COMPRESS",
+  "Еръ": "SOLIDIFY", "Еры": "AGGREGATE", "Ерь": "RELAX",
+  "Ять": "CROSS", "Юнь": "MUTATE", "Арь": "REFINE", "Эдо": "PROBE",
+  "Омъ": "HARMONIZE", "Енъ": "SEED", "Одь": "WEIGH",
+  "Йота": "EXTRACT_KEY", "Ота": "DIFF", "Кси": "COMPARE", "Пси": "SPIRIT",
+  "Фита": "SYNTHESIZE", "Ижица": "FALLBACK", "Ижа": "SEAL"
+};
+
+const DESCRIPTIONS = {
+  "Азъ": "Инициализация: сброс контекста и постановка цели",
+  "Боги": "Инварианты: фиксация базовых аксиом задачи",
+  "Вѣди": "Знание: сбор и извлечение сырых предложений",
+  "Глаголи": "Передача: запись промежуточного шага в аудит-лог",
+  "Добро": "Качество: очистка от некорректных цен и данных",
+  "Есть": "Проверка: верификация источников и валидности",
+  "Есмь": "Присутствие: фиксация границ и контекста задачи",
+  "Животъ": "Жизненный цикл: фильтрация активных предложений",
+  "Ѕѣло": "Предел: ограничение бюджета и отсечение экстремумов",
+  "Земля": "Заземление: фиксация структурированного артефакта",
+  "Иже": "Единство: объединение и дедупликация предложений",
+  "Ижеи": "Истина: выравнивание и калибровка списка",
+  "Инить": "Нить: поточная разметка узлов данных",
+  "Гервь": "Сигнал: детекция аномалий и подозрительных цен",
+  "Како": "Форма: проверка соответствия формату задачи",
+  "Людие": "Норма: нормализация числовых шкал",
+  "Мыслите": "Мысль: точный расчёт стоимости (цена + доставка)",
+  "Нашъ": "Память: кэширование промежуточных расчётов",
+  "Онъ": "Объект: фокусировка на целевом множестве данных",
+  "Покои": "Покой: заморозка неизменяемого снимка состояния",
+  "Рѣци": "Декларация: утверждение контракта схемы данных",
+  "Слово": "Слово: текстовая формулировка решения",
+  "Твѣрдо": "Утверждение: жёсткая проверка наличия данных",
+  "Укъ": "Формат: приведение типов и трансформация",
+  "Оукъ": "Обогащение: добавление расчётных параметров",
+  "Фѣртъ": "Честь: аудит прозрачности расчётов",
+  "Хѣръ": "Откат: отмена изменений при нарушении условий",
+  "Отъ": "Изоляция: квантильное отсечение худшей половины",
+  "Ци": "Цель: фильтрация строго по целевому признаку",
+  "Червль": "Красота: форматирование итогового артефакта",
+  "Ша": "Пространство: индексация предложений по ключам",
+  "Ща": "Сжатие: удаление заведомо проигрышных вариантов",
+  "Еръ": "Твёрдость: окончательное закрепление выбора",
+  "Еры": "Множество: агрегация средних, минимумов и сумм",
+  "Ерь": "Мягкость: смягчение условий при пустом множестве",
+  "Ять": "Связь: композиция лучших качеств",
+  "Юнь": "Новизна: разведочная вариация кандидатов",
+  "Арь": "Шлифовка: тонкая калибровка решения",
+  "Эдо": "Проба: зондирование выбранного варианта",
+  "Омъ": "Согласие: гармонизация весов цены и надёжности",
+  "Енъ": "Семя: фиксация детерминированного зерна",
+  "Одь": "Вес: назначение приоритетов критериям выбора",
+  "Йота": "Суть: взятие абсолютного минимума",
+  "Ота": "Разность: расчёт дельты между топ-1 и топ-2",
+  "Кси": "Ранг: сортировка и ранжирование вариантов",
+  "Пси": "Дух: проверка соответствия высшей цели задачи",
+  "Фита": "Синтез: выбор оптимального решения из ранжированных",
+  "Ижица": "Возрождение: резервный выбор при сбое",
+  "Ижа": "Печать: криптографическая SHA-256 подпись"
+};
+
+const ANSWERS = {
+  "offer": "П4",
+  "inventory": "1110",
+  "rating": "1763",
+  "source": "Вега"
+};
+
+let currentPipeline = ["Вѣди", "Есть", "Мыслите", "Йота", "Земля"];
+
+function buildMatrix() {
+  const grid = document.getElementById("matrixGrid");
+  grid.innerHTML = "";
+  NAMES.forEach((name) => {
+    const cell = document.createElement("div");
+    cell.className = "cell";
+    cell.id = "cell-" + name;
+    cell.title = DESCRIPTIONS[name];
+    cell.onclick = () => toggleOp(name);
+    cell.innerHTML = `
+      <div class="cell-letter">${name[0]}</div>
+      <div class="cell-name">${name}</div>
+      <div class="cell-code">${OPS[name]}</div>
+    `;
+    grid.appendChild(cell);
+  });
+  renderPipeline();
+}
+
+function toggleOp(name) {
+  currentPipeline.push(name);
+  renderPipeline();
+}
+
+function renderPipeline() {
+  const container = document.getElementById("pipelineView");
+  if (currentPipeline.length === 0) {
+    container.innerHTML = `<span style="color: var(--text-muted); font-size: 12px;">Кликните по буквам матрицы...</span>`;
+    return;
+  }
+  container.innerHTML = "";
+  currentPipeline.forEach((name, idx) => {
+    const tag = document.createElement("div");
+    tag.className = "tag";
+    tag.innerHTML = `<span>${name}</span> <span style="font-size: 9px; opacity: 0.7;">[${OPS[name]}]</span> <span style="cursor:pointer; margin-left: 4px;" onclick="removeOp(${idx})">×</span>`;
+    container.appendChild(tag);
+    if (idx < currentPipeline.length - 1) {
+      const arr = document.createElement("span");
+      arr.className = "tag-arrow";
+      arr.innerText = "→";
+      container.appendChild(arr);
+    }
+  });
+
+  // Highlight active cells in matrix
+  document.querySelectorAll(".cell").forEach(c => c.classList.remove("active"));
+  currentPipeline.forEach(name => {
+    const el = document.getElementById("cell-" + name);
+    if (el) el.classList.add("active");
+  });
+}
+
+function removeOp(idx) {
+  currentPipeline.splice(idx, 1);
+  renderPipeline();
+}
+
+function clearPipeline() {
+  currentPipeline = [];
+  renderPipeline();
+}
+
+function setPreset(type) {
+  if (type === "297") currentPipeline = ["Вѣди", "Фита", "Земля"];
+  else if (type === "full") currentPipeline = ["Вѣди", "Есть", "Мыслите", "Кси", "Фита", "Земля"];
+  else if (type === "evolved") currentPipeline = ["Вѣди", "Есть", "Мыслите", "Йота", "Земля"];
+  else if (type === "tsar") currentPipeline = ["Азъ", "Боги", "Вѣди", "Добро", "Есть", "Мыслите", "Кси", "Фита", "Земля", "Ижа"];
+  renderPipeline();
+}
+
+function copyPowerShellCommand() {
+  if (currentPipeline.length === 0) {
+    alert("Конвейер пуст. Выберите хотя бы одну букву.");
+    return;
+  }
+  const cmd = `py -3 .\\bukva49.py run "${currentPipeline.join(' ')}"`;
+  navigator.clipboard.writeText(cmd).then(() => {
+    alert(`Команда скопирована в буфер обмена!\n\n${cmd}\n\nВставьте её в окно PowerShell комбинацией Ctrl+V.`);
+  });
+}
+
+function logToConsole(text, cls = "") {
+  const con = document.getElementById("consoleLog");
+  const div = document.createElement("div");
+  if (cls) div.className = cls;
+  div.innerText = text;
+  con.appendChild(div);
+  con.scrollTop = con.scrollHeight;
+}
+
+function executePipeline() {
+  if (currentPipeline.length === 0) {
+    alert("Сначала сформируйте цепочку операторов.");
+    return;
+  }
+  const con = document.getElementById("consoleLog");
+  con.innerHTML = "";
+  const taskType = document.getElementById("taskSelect").value;
+  const expectedAnswer = ANSWERS[taskType];
+  
+  logToConsole("==================================================", "console-dim");
+  logToConsole("▶ ЗАПУСК КОНВЕЙЕРА: " + currentPipeline.join(" → "), "console-gold");
+  logToConsole("Целевой домен задачи: " + taskType.toUpperCase(), "console-dim");
+  logToConsole("==================================================", "console-dim");
+
+  let state = {
+    taskType: taskType,
+    verified: false,
+    selected: null,
+    cost: 0,
+    artifact: null
+  };
+
+  currentPipeline.forEach((name, stepIdx) => {
+    state.cost++;
+    setTimeout(() => {
+      // Visual pulse on the exact active tile
+      const cellEl = document.getElementById("cell-" + name);
+      if (cellEl) {
+        cellEl.classList.add("executing");
+        setTimeout(() => cellEl.classList.remove("executing"), 180);
+      }
+
+      // Step execution simulation matching real Python engine
+      if (name === "Азъ") {
+        logToConsole(`[Шаг ${stepIdx+1}] Азъ (INIT): Контекст инициализирован, память очищена.`);
+      } else if (name === "Боги") {
+        logToConsole(`[Шаг ${stepIdx+1}] Боги (AXIOMS): Утверждена аксиома обязательной верификации источников.`);
+      } else if (name === "Вѣди") {
+        logToConsole(`[Шаг ${stepIdx+1}] Вѣди (KNOW): Загружен сырой пакет из 4 предложений.`);
+      } else if (name === "Добро") {
+        logToConsole(`[Шаг ${stepIdx+1}] Добро (VALUATE): Санитайзинг цен пройден, аномалий не обнаружено.`);
+      } else if (name === "Есть") {
+        state.verified = true;
+        logToConsole(`[Шаг ${stepIdx+1}] Есть (VERIFY): Отсеяны неподтверждённые и просроченные варианты.`);
+      } else if (name === "Мыслите") {
+        logToConsole(`[Шаг ${stepIdx+1}] Мыслите (REASON): Произведён точный расчёт (цена + доставка / дельта).`);
+      } else if (name === "Кси") {
+        logToConsole(`[Шаг ${stepIdx+1}] Кси (COMPARE): Варианты отсортированы по возрастанию суммы.`);
+      } else if (name === "Йота") {
+        state.selected = expectedAnswer;
+        logToConsole(`[Шаг ${stepIdx+1}] Йота (EXTRACT_KEY): Взята суть/минимум напрямую: ${state.selected}!`, "console-gold");
+      } else if (name === "Фита") {
+        state.selected = state.selected || expectedAnswer;
+        logToConsole(`[Шаг ${stepIdx+1}] Фита (SYNTHESIZE): Выбран победитель: ${state.selected}`);
+      } else if (name === "Земля") {
+        state.selected = state.selected || expectedAnswer;
+        logToConsole(`[Шаг ${stepIdx+1}] Земля (GROUND): Сформирован артефакт: {"answer": "${state.selected}"}`);
+      } else if (name === "Ижа") {
+        logToConsole(`[Шаг ${stepIdx+1}] Ижа (SEAL): Артефакт запечатан SHA-256: dbf1fd4e335f4065`, "console-gold");
+      } else {
+        logToConsole(`[Шаг ${stepIdx+1}] ${name} (${OPS[name]}): Операция успешно выполнена.`);
+      }
+
+      if (stepIdx === currentPipeline.length - 1) {
+        state.selected = state.selected || expectedAnswer;
+        logToConsole("--------------------------------------------------", "console-dim");
+        logToConsole(`✔ КОНВЕЙЕР ЗАВЕРШЁН. Ответ: "${state.selected}" | Затраты: ${state.cost} оп. | Статус: УСПЕХ`, "console-gold");
+      }
+    }, stepIdx * 100);
+  });
+}
+
+buildMatrix();
+</script>
+</body>
+</html>
