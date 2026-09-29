@@ -38,10 +38,10 @@ classifiers = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/bukva49/bukva49"
-Documentation = "https://github.com/bukva49/bukva49#readme"
-Repository = "https://github.com/bukva49/bukva49.git"
-Issues = "https://github.com/bukva49/bukva49/issues"
+Homepage = "https://github.com/CMEPT6/bukva49-"
+Documentation = "https://github.com/CMEPT6/bukva49-#readme"
+Repository = "https://github.com/CMEPT6/bukva49-.git"
+Issues = "https://github.com/CMEPT6/bukva49-/issues"
 
 [project.scripts]
 bukva49 = "bukva49.cli:main"
