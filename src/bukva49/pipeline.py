@@ -1,4 +1,7 @@
-"""High-level cognitive agent pipeline module for BUKVA-49."""
+"""High-level cognitive agent pipeline module for BUKVA-49.
+
+Deterministic execution graph for multi-agent reasoning, verification, and audit trail.
+"""
 from __future__ import annotations
 
 import hashlib
@@ -58,7 +61,18 @@ class PipelineState:
 
 
 class BukvaAgentPipeline:
-    """Agentic pipeline executing the Slavic cognitive workflow."""
+    """Deterministic 7-step cognitive workflow:
+
+    1. Азъ     (INIT)       - Определение домена и инвариантов
+    2. Вѣди    (KNOW)       - Извлечение структурированных фактов в evidence
+    3. Есть    (VERIFY)     - Детерминированная фильтрация недопустимых записей
+    4. Мыслите (REASON)     - Математический расчёт в ядре Python (без галлюцинаций)
+    5. Кси     (COMPARE)    - Сортировка и ранжирование
+    6. Фита    (SYNTHESIZE) - Выбор оптимального решения
+    7. Земля   (GROUND)     - Формирование верифицированного артефакта
+    8. Ижа     (SEAL)       - Криптографическая печать полного контекста SHA-256
+    9. Есть    (AUDIT)      - Финальная верификация контракта выходных данных
+    """
 
     def __init__(self, verbose: bool = False):
         self.verbose = verbose
@@ -71,23 +85,23 @@ class BukvaAgentPipeline:
 
     def op_az(self, task_text: str) -> PipelineState:
         state = PipelineState(task_description=task_text)
-        self.log(state, "Азъ (INIT)", "Инициализация контекста. Анализ целевой функции...")
+        self.log(state, "Азъ (INIT)", "Инициализация контекста. Анализ домена целевой функции...")
         lower = task_text.lower()
-        if "поставщика" in lower or "доставки" in lower or "закуп" in lower or "памяти" in lower:
-            state.target_type = "offer"
-            state.axioms = {
-                "source_verified_required": True,
-                "minimize_total_cost": True,
-            }
-        elif "остаток" in lower or "складе" in lower or "транзакци" in lower:
+        if any(w in lower for w in ("шахматист", "рейтинг", "турнир")):
+            state.target_type = "rating"
+            state.axioms = {"streak_bonus_threshold": 2, "streak_bonus": 10}
+        elif any(w in lower for w in ("проект", "утвержд", "черновик", "отозвано", "кодовое название", "источник")):
+            state.target_type = "source"
+            state.axioms = {"approved_only": True, "select_latest": True}
+        elif any(w in lower for w in ("остаток", "склад", "транзакци", "товар", "инвентаризац")):
             state.target_type = "inventory"
             state.axioms = {"account_confirmed_only": True}
-        elif "шахматиста" in lower or "рейтинг" in lower or "турнир" in lower:
-            state.target_type = "rating"
-            state.axioms = {"streak_bonus_threshold": 2}
-        elif "проект" in lower or "утвержд" in lower or "черновик" in lower:
-            state.target_type = "source"
-            state.axioms = {"approved_only": True}
+        elif any(w in lower for w in ("поставщика", "доставки", "закуп", "памяти", "price", "delivery")):
+            state.target_type = "offer"
+            state.axioms = {
+                "require_confirmed": True,
+                "minimize_total_cost": True,
+            }
         else:
             state.target_type = "generic"
         self.log(state, "Азъ (INIT)", f"Определён домен задачи: {state.target_type.upper()}")
@@ -98,17 +112,29 @@ class BukvaAgentPipeline:
         if candidates is not None:
             state.evidence = list(candidates)
             self.log(state, "Вѣди (KNOW)", f"Получено внешних кандидатов: {len(state.evidence)}")
-            return
+        else:
+            # Поиск внедрённого JSON массива
+            found_json = re.search(r"(\[.*?\])", state.task_description, re.DOTALL)
+            if found_json:
+                try:
+                    parsed = json.loads(found_json.group(0))
+                    if isinstance(parsed, list):
+                        state.evidence = parsed
+                        self.log(state, "Вѣди (KNOW)", f"Успешно извлечено записей из JSON: {len(state.evidence)}")
+                except Exception:
+                    pass
 
-        found_json = re.search(r"(\[.*?\]|\{.*?\})", state.task_description, re.DOTALL)
-        if found_json:
-            try:
-                parsed = json.loads(found_json.group(0))
-                if isinstance(parsed, list):
-                    state.evidence = parsed
-                    self.log(state, "Вѣди (KNOW)", f"Успешно извлечено записей из JSON: {len(state.evidence)}")
-            except Exception:
-                pass
+        # Калибровка домена по фактической схеме evidence
+        if state.evidence and isinstance(state.evidence[0], dict):
+            first = state.evidence[0]
+            if "тур" in first and "результат" in first:
+                state.target_type = "rating"
+            elif "название" in first and "дата" in first:
+                state.target_type = "source"
+            elif "кол-во" in first and "статус" in first:
+                state.target_type = "inventory"
+            elif "price" in first or "delivery_cost" in first:
+                state.target_type = "offer"
 
         if state.target_type == "inventory":
             m = re.search(r"Начальный остаток:\s*(\d+)", state.task_description)
@@ -124,32 +150,43 @@ class BukvaAgentPipeline:
     def op_est(self, state: PipelineState) -> None:
         self.log(state, "Есть (VERIFY)", "Детерминированная проверка условий и отсечение недопустимых данных...")
         if state.target_type == "offer":
-            m_days = re.search(r"days\s*<=\s*(\d+)|не более\s*(\d+)\s*дней", state.task_description, re.IGNORECASE)
-            max_days = int(m_days.group(1) or m_days.group(2)) if m_days else None
+            # Извлечение лимита срока поставки: "days <= N" или "не более N дней" или "в пределах N дней"
+            m_days = re.search(
+                r"(?:days\s*<=\s*(\d+)|не более\s*(\d+)\s*дней|до\s*(\d+)\s*дней|срок\s*(?:до\s*)?(\d+)\s*дн)",
+                state.task_description,
+                re.IGNORECASE,
+            )
+            max_days = None
+            if m_days:
+                for grp in m_days.groups():
+                    if grp:
+                        max_days = int(grp)
+                        break
 
             valid = []
             for item in state.evidence:
-                confirmed = item.get("confirmed", True)
-                verified = item.get("source_verified", True)
-                is_ok = bool(confirmed and verified)
+                confirmed = item.get("confirmed", item.get("source_verified", True))
                 days = item.get("days")
+                is_valid = bool(confirmed)
                 if max_days is not None and days is not None and days > max_days:
-                    is_ok = False
+                    is_valid = False
                 name = item.get("name") or item.get("id") or "?"
-                if is_ok:
+                if is_valid:
                     valid.append(item)
                     self.log(state, "Есть (VERIFY)", f"  [+] {name}: Верифицирован и допущен")
                 else:
-                    self.log(state, "Есть (VERIFY)", f"  [-] {name}: Дисквалифицирован (не верифицирован или превышен срок)")
+                    reason = "не подтверждён" if not confirmed else f"срок {days} > {max_days}"
+                    self.log(state, "Есть (VERIFY)", f"  [-] {name}: Дисквалифицирован ({reason})")
             state.verified_candidates = valid
 
         elif state.target_type == "inventory":
             valid = []
             for tx in state.evidence:
-                status = tx.get("статус", "")
-                tx_type = tx.get("тип", "")
+                status = str(tx.get("статус", "")).lower()
+                tx_type = str(tx.get("тип", "")).lower()
                 qty = tx.get("кол-во", 0)
-                if status == "проведено":
+                # Учитываются только завершённые проводки
+                if status in ("проведено", "подтверждено", "completed", "done"):
                     valid.append(tx)
                     self.log(state, "Есть (VERIFY)", f"  [+] Операция '{tx_type}' на {qty} шт -> УЧИТЫВАЕТСЯ")
                 else:
@@ -159,10 +196,10 @@ class BukvaAgentPipeline:
         elif state.target_type == "source":
             valid = []
             for doc in state.evidence:
-                status = doc.get("статус", "")
+                status = str(doc.get("статус", "")).lower()
                 name = doc.get("название", "")
                 date = doc.get("дата", "")
-                if status == "утверждено":
+                if status in ("утверждено", "approved", "active"):
                     valid.append(doc)
                     self.log(state, "Есть (VERIFY)", f"  [+] '{name}' от {date} -> ДОПУЩЕН")
                 else:
@@ -177,58 +214,66 @@ class BukvaAgentPipeline:
             state.verified_candidates = list(state.evidence)
 
     def op_myslite(self, state: PipelineState) -> None:
-        self.log(state, "Мыслите (REASON)", "Выполнение точных математических расчётов...")
+        self.log(state, "Мыслите (REASON)", "Выполнение детерминированных математических расчётов в Python...")
         if state.target_type == "offer":
             computed = []
             for item in state.verified_candidates:
                 delivery = item.get("delivery_cost", item.get("delivery", 0))
-                total = item["price"] + delivery
+                price = item["price"]
+                total = price + delivery
                 computed.append({
                     "id": item.get("id"),
                     "name": item.get("name") or item.get("id"),
                     "total_cost": total,
-                    "price": item["price"],
+                    "price": price,
                     "delivery": delivery,
-                    "source_verified": item.get("source_verified", True),
+                    "confirmed": item.get("confirmed", True),
                 })
-                self.log(state, "Мыслите (REASON)", f"  Расчёт {computed[-1]['name']}: {item['price']} + {delivery} = {total}")
+                self.log(state, "Мыслите (REASON)", f"  Расчёт {computed[-1]['name']}: {price} + {delivery} = {total}")
             state.computed_metrics = computed
 
         elif state.target_type == "inventory":
             stock = state.initial_value or 0
             for tx in state.verified_candidates:
-                t = tx.get("тип", "")
+                t = str(tx.get("тип", "")).lower()
                 q = tx.get("кол-во", 0)
-                if t == "приход":
+                # Поступление и возврат клиента прибавляют, отгрузка и расход убавляют
+                if t in ("поступление", "возврат_клиента", "приход", "income", "return"):
                     stock += q
-                elif t == "расход":
+                elif t in ("отгрузка", "расход", "списание", "outcome", "expense"):
                     stock -= q
             state.computed_metrics = [{"final_stock": stock}]
-            self.log(state, "Мыслите (REASON)", f"Итоговый остаток: {stock} шт.")
+            self.log(state, "Мыслите (REASON)", f"Итоговый физический остаток: {stock} шт.")
 
         elif state.target_type == "rating":
             rating = state.initial_value or 1500
             current_streak = 0
             max_streak = 0
             for r in state.verified_candidates:
-                res = r.get("результат", "")
-                opp = r.get("соперник", "")
-                if res == "победа":
+                res = str(r.get("результат", "")).lower()
+                opp = str(r.get("соперник", "")).lower()
+                delta = 0
+                if res in ("победа", "win"):
+                    delta = 15 if opp in ("сильный", "strong") else 10
                     current_streak += 1
                     max_streak = max(max_streak, current_streak)
-                    delta = 15 if opp == "сильный" else 10
-                elif res == "ничья":
+                elif res in ("ничья", "draw"):
+                    delta = 0
                     current_streak = 0
-                    delta = 2 if opp == "сильный" else -2
+                elif res in ("поражение", "loss"):
+                    delta = -12
+                    current_streak = 0
                 else:
                     current_streak = 0
-                    delta = -10 if opp == "сильный" else -15
                 rating += delta
+                self.log(state, "Мыслите (REASON)", f"  Тур {r.get('тур')}: {res} ({opp}) -> дельта {delta:+d} = {rating}")
 
             streak_bonus = 10 if max_streak >= 2 else 0
             final_rating = rating + streak_bonus
+            if streak_bonus > 0:
+                self.log(state, "Мыслите (REASON)", f"Бонус за победную серию ({max_streak} подряд): +{streak_bonus}")
             state.computed_metrics = [{"final_rating": final_rating}]
-            self.log(state, "Мыслите (REASON)", f"Итоговый рейтинг: {final_rating}")
+            self.log(state, "Мыслите (REASON)", f"Итоговый подтверждённый рейтинг: {final_rating}")
 
         elif state.target_type == "source":
             state.computed_metrics = list(state.verified_candidates)
@@ -236,10 +281,12 @@ class BukvaAgentPipeline:
     def op_ksi(self, state: PipelineState) -> None:
         self.log(state, "Кси (COMPARE)", "Ранжирование и упорядочивание допустимых вариантов...")
         if state.target_type == "offer":
-            ranked = sorted(state.computed_metrics, key=lambda x: (x["total_cost"], x["name"]))
+            # Сортировка по минимальной сумме, затем по алфавиту имени
+            ranked = sorted(state.computed_metrics, key=lambda x: (x["total_cost"], str(x["name"])))
             state.ranked_results = ranked
         elif state.target_type == "source":
-            ranked = sorted(state.computed_metrics, key=lambda x: x.get("дата", ""), reverse=True)
+            # Сортировка по дате (самая поздняя дата первая)
+            ranked = sorted(state.computed_metrics, key=lambda x: str(x.get("дата", "")), reverse=True)
             state.ranked_results = ranked
         else:
             state.ranked_results = list(state.computed_metrics)
@@ -264,22 +311,35 @@ class BukvaAgentPipeline:
             "target_type": state.target_type,
             "pipeline": "БУКВА-49 (Азъ -> Вѣди -> Есть -> Мыслите -> Кси -> Фита -> Земля -> Ижа)",
             "selected_metric": state.best_score,
-            "ranked_count": len(state.ranked_results),
+            "verified_candidates_count": len(state.verified_candidates),
             "audit_trail": state.audit_trail,
         }
         state.final_artifact = artifact
 
     def op_ija(self, state: PipelineState) -> None:
-        self.log(state, "Ижа (SEAL)", "Криптографическая подпись решения (SHA-256)...")
-        seal_src = f"{state.selected_result}_{state.best_score}_{len(state.audit_trail)}"
-        state.seal_hash = hashlib.sha256(seal_src.encode("utf-8")).hexdigest()[:16]
+        self.log(state, "Ижа (SEAL)", "Криптографическая печать полного контекста (SHA-256)...")
+        # Честное хеширование: хешируем сырые входные данные, начальные условия, результат и длину трассы
+        seal_payload = {
+            "evidence": state.evidence,
+            "initial_value": state.initial_value,
+            "selected_result": state.selected_result,
+            "best_score": state.best_score,
+            "steps_count": len(state.audit_trail),
+        }
+        raw_json = json.dumps(seal_payload, sort_keys=True, ensure_ascii=False)
+        state.seal_hash = hashlib.sha256(raw_json.encode("utf-8")).hexdigest()[:16]
         if state.final_artifact:
             state.final_artifact["sha256_seal"] = state.seal_hash
-        self.log(state, "Ижа (SEAL)", f"Печать установлена: {state.seal_hash}")
+            state.final_artifact["seal_payload_sha256"] = hashlib.sha256(raw_json.encode("utf-8")).hexdigest()
+        self.log(state, "Ижа (SEAL)", f"Печать контекста установлена: {state.seal_hash}")
 
     def op_audit(self, state: PipelineState) -> None:
         self.log(state, "Есть (AUDIT)", "Контрольная верификация выходного артефакта...")
-        state.is_valid = bool(state.final_artifact and state.final_artifact.get("answer") is not None)
+        state.is_valid = bool(
+            state.final_artifact
+            and state.final_artifact.get("answer") is not None
+            and state.seal_hash is not None
+        )
 
     def run(self, task_text: str, candidates: list[dict] | None = None) -> PipelineState:
         t0 = time.monotonic()
