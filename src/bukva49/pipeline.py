@@ -1,15 +1,37 @@
 """High-level cognitive agent pipeline module for BUKVA-49.
 
 Deterministic execution graph for multi-agent reasoning, verification, and audit trail.
+Features fail-closed validation, structured task schemas, and cryptographic HMAC-SHA256 seals.
 """
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import re
 import time
 from dataclasses import dataclass, field
 from typing import Any
+
+
+@dataclass
+class TaskConstraints:
+    """Explicit business constraints (Task Schema as Data)."""
+    max_days: int | None = None
+    require_confirmed: bool = True
+    max_budget: int | None = None
+    allowed_statuses: tuple[str, ...] = ("проведено", "подтверждено", "утверждено", "completed", "approved")
+    custom_rules: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class TaskSpecification:
+    """Typed input specification bypassing regular expression parsing."""
+    domain: str
+    goal: str
+    candidates: list[dict]
+    constraints: TaskConstraints = field(default_factory=TaskConstraints)
+    initial_value: int | None = None
 
 
 @dataclass
@@ -28,6 +50,8 @@ class PipelineState:
     execution_time: float = 0.0
     seal_hash: str | None = None
     axioms: dict[str, Any] = field(default_factory=dict)
+    error: str | None = None
+    constraints: TaskConstraints = field(default_factory=TaskConstraints)
 
     @property
     def goal(self) -> str:
@@ -61,20 +85,21 @@ class PipelineState:
 
 
 class BukvaAgentPipeline:
-    """Deterministic 7-step cognitive workflow:
+    """Deterministic 7-step Slavic cognitive workflow:
 
     1. Азъ     (INIT)       - Определение домена и инвариантов
     2. Вѣди    (KNOW)       - Извлечение структурированных фактов в evidence
-    3. Есть    (VERIFY)     - Детерминированная фильтрация недопустимых записей
+    3. Есть    (VERIFY)     - Детерминированная проверка условий (Fail-Closed)
     4. Мыслите (REASON)     - Математический расчёт в ядре Python (без галлюцинаций)
     5. Кси     (COMPARE)    - Сортировка и ранжирование
     6. Фита    (SYNTHESIZE) - Выбор оптимального решения
     7. Земля   (GROUND)     - Формирование верифицированного артефакта
-    8. Ижа     (SEAL)       - Криптографическая печать полного контекста SHA-256
+    8. Ижа     (SEAL)       - Криптографическая печать HMAC-SHA256
     9. Есть    (AUDIT)      - Финальная верификация контракта выходных данных
     """
 
-    def __init__(self, verbose: bool = False):
+    def __init__(self, secret_key: str | bytes | None = None, verbose: bool = False):
+        self.secret_key = secret_key
         self.verbose = verbose
 
     def log(self, state: PipelineState, step_name: str, message: str) -> None:
@@ -83,8 +108,10 @@ class BukvaAgentPipeline:
         if self.verbose:
             print(f"  -> {entry}")
 
-    def op_az(self, task_text: str) -> PipelineState:
+    def op_az(self, task_text: str, constraints: TaskConstraints | None = None) -> PipelineState:
         state = PipelineState(task_description=task_text)
+        if constraints:
+            state.constraints = constraints
         self.log(state, "Азъ (INIT)", "Инициализация контекста. Анализ домена целевой функции...")
         lower = task_text.lower()
         if any(w in lower for w in ("шахматист", "рейтинг", "турнир")):
@@ -150,18 +177,47 @@ class BukvaAgentPipeline:
     def op_est(self, state: PipelineState) -> None:
         self.log(state, "Есть (VERIFY)", "Детерминированная проверка условий и отсечение недопустимых данных...")
         if state.target_type == "offer":
-            # Извлечение лимита срока поставки: "days <= N" или "не более N дней" или "в пределах N дней"
-            m_days = re.search(
-                r"(?:days\s*<=\s*(\d+)|не более\s*(\d+)\s*дней|до\s*(\d+)\s*дней|срок\s*(?:до\s*)?(\d+)\s*дн)",
-                state.task_description,
-                re.IGNORECASE,
+            # 1. Приоритет структурированной схемы (Task Schema as Data)
+            max_days = state.constraints.max_days
+
+            # 2. Если лимит не задан явно, парсим из текста
+            if max_days is None:
+                m_days = re.search(
+                    r"(?:days\s*<=\s*(\d+)|"
+                    r"не более\s*(\d+)\s*(?:дней|суток|дн)|"
+                    r"максимум\s*(\d+)\s*(?:дней|суток|дн)|"
+                    r"до\s*(\d+)\s*(?:дней|суток|дн)|"
+                    r"срок\s*(?:до\s*)?(\d+)\s*(?:дней|суток|дн)|"
+                    r"в пределах\s*(\d+)\s*(?:дней|суток|дн))",
+                    state.task_description,
+                    re.IGNORECASE,
+                )
+                if m_days:
+                    for grp in m_days.groups():
+                        if grp:
+                            max_days = int(grp)
+                            break
+
+            # 3. Принцип FAIL-CLOSED:
+            # Если текст явно говорит об ограничении сроков, но число не извлечено,
+            # мы ОБЯЗАНЫ отказать во избежание ложноположительной сертификации!
+            lower_desc = state.task_description.lower()
+            mentions_delivery_limit = any(
+                w in lower_desc for w in ("дней", "суток", "дн", "срок", "days", "дедлайн", "лимит", "максимум", "не более")
             )
-            max_days = None
-            if m_days:
-                for grp in m_days.groups():
-                    if grp:
-                        max_days = int(grp)
-                        break
+            has_candidate_days = any("days" in item for item in state.evidence)
+
+            if max_days is None and mentions_delivery_limit and has_candidate_days:
+                self.log(
+                    state,
+                    "Есть (VERIFY)",
+                    "FAIL-CLOSED: В тексте обнаружены требования к сроку доставки, но точный числовой лимит не верифицирован. "
+                    "Автоматический выбор отклонён во избежание ложной сертификации.",
+                )
+                state.is_valid = False
+                state.error = "Unresolved delivery constraint (fail-closed)"
+                state.verified_candidates = []
+                return
 
             valid = []
             for item in state.evidence:
@@ -177,6 +233,14 @@ class BukvaAgentPipeline:
                 else:
                     reason = "не подтверждён" if not confirmed else f"срок {days} > {max_days}"
                     self.log(state, "Есть (VERIFY)", f"  [-] {name}: Дисквалифицирован ({reason})")
+
+            if not valid:
+                self.log(state, "Есть (VERIFY)", "FAIL-CLOSED: Ни один кандидат не прошёл фильтр условий.")
+                state.is_valid = False
+                state.error = "All candidates disqualified"
+                state.verified_candidates = []
+                return
+
             state.verified_candidates = valid
 
         elif state.target_type == "inventory":
@@ -185,7 +249,6 @@ class BukvaAgentPipeline:
                 status = str(tx.get("статус", "")).lower()
                 tx_type = str(tx.get("тип", "")).lower()
                 qty = tx.get("кол-во", 0)
-                # Учитываются только завершённые проводки
                 if status in ("проведено", "подтверждено", "completed", "done"):
                     valid.append(tx)
                     self.log(state, "Есть (VERIFY)", f"  [+] Операция '{tx_type}' на {qty} шт -> УЧИТЫВАЕТСЯ")
@@ -204,6 +267,14 @@ class BukvaAgentPipeline:
                     self.log(state, "Есть (VERIFY)", f"  [+] '{name}' от {date} -> ДОПУЩЕН")
                 else:
                     self.log(state, "Есть (VERIFY)", f"  [-] '{name}' от {date} -> ОТКЛОНЁН (статус: {status})")
+
+            if not valid:
+                self.log(state, "Есть (VERIFY)", "FAIL-CLOSED: Нет утверждённых документов.")
+                state.is_valid = False
+                state.error = "No approved documents"
+                state.verified_candidates = []
+                return
+
             state.verified_candidates = valid
 
         elif state.target_type == "rating":
@@ -214,6 +285,9 @@ class BukvaAgentPipeline:
             state.verified_candidates = list(state.evidence)
 
     def op_myslite(self, state: PipelineState) -> None:
+        if state.error or not state.verified_candidates:
+            return
+
         self.log(state, "Мыслите (REASON)", "Выполнение детерминированных математических расчётов в Python...")
         if state.target_type == "offer":
             computed = []
@@ -237,7 +311,6 @@ class BukvaAgentPipeline:
             for tx in state.verified_candidates:
                 t = str(tx.get("тип", "")).lower()
                 q = tx.get("кол-во", 0)
-                # Поступление и возврат клиента прибавляют, отгрузка и расход убавляют
                 if t in ("поступление", "возврат_клиента", "приход", "income", "return"):
                     stock += q
                 elif t in ("отгрузка", "расход", "списание", "outcome", "expense"):
@@ -279,27 +352,34 @@ class BukvaAgentPipeline:
             state.computed_metrics = list(state.verified_candidates)
 
     def op_ksi(self, state: PipelineState) -> None:
+        if state.error or not state.computed_metrics:
+            return
+
         self.log(state, "Кси (COMPARE)", "Ранжирование и упорядочивание допустимых вариантов...")
         if state.target_type == "offer":
-            # Сортировка по минимальной сумме, затем по алфавиту имени
             ranked = sorted(state.computed_metrics, key=lambda x: (x["total_cost"], str(x["name"])))
             state.ranked_results = ranked
         elif state.target_type == "source":
-            # Сортировка по дате (самая поздняя дата первая)
             ranked = sorted(state.computed_metrics, key=lambda x: str(x.get("дата", "")), reverse=True)
             state.ranked_results = ranked
         else:
             state.ranked_results = list(state.computed_metrics)
 
     def op_fita(self, state: PipelineState) -> None:
+        if state.error:
+            state.selected_result = None
+            return
+
         self.log(state, "Фита (SYNTHESIZE)", "Принятие оптимального решения на основе ранжирования...")
         if state.target_type == "offer":
             if state.ranked_results:
                 state.selected_result = state.ranked_results[0]["name"]
         elif state.target_type == "inventory":
-            state.selected_result = str(state.computed_metrics[0]["final_stock"])
+            if state.computed_metrics:
+                state.selected_result = str(state.computed_metrics[0]["final_stock"])
         elif state.target_type == "rating":
-            state.selected_result = str(state.computed_metrics[0]["final_rating"])
+            if state.computed_metrics:
+                state.selected_result = str(state.computed_metrics[0]["final_rating"])
         elif state.target_type == "source":
             if state.ranked_results:
                 state.selected_result = state.ranked_results[0].get("название")
@@ -307,44 +387,87 @@ class BukvaAgentPipeline:
     def op_zemlya(self, state: PipelineState) -> None:
         self.log(state, "Земля (GROUND)", "Формирование сертифицированного JSON-артефакта...")
         artifact = {
+            "status": "REJECTED" if state.error else "SUCCESS",
             "answer": state.selected_result,
             "target_type": state.target_type,
             "pipeline": "БУКВА-49 (Азъ -> Вѣди -> Есть -> Мыслите -> Кси -> Фита -> Земля -> Ижа)",
             "selected_metric": state.best_score,
             "verified_candidates_count": len(state.verified_candidates),
             "audit_trail": state.audit_trail,
+            "error": state.error,
         }
         state.final_artifact = artifact
 
     def op_ija(self, state: PipelineState) -> None:
-        self.log(state, "Ижа (SEAL)", "Криптографическая печать полного контекста (SHA-256)...")
-        # Честное хеширование: хешируем сырые входные данные, начальные условия, результат и длину трассы
+        self.log(state, "Ижа (SEAL)", "Криптографическая печать полного контекста (HMAC / SHA-256)...")
         seal_payload = {
             "evidence": state.evidence,
             "initial_value": state.initial_value,
+            "constraints": {
+                "max_days": state.constraints.max_days,
+                "require_confirmed": state.constraints.require_confirmed,
+            },
             "selected_result": state.selected_result,
             "best_score": state.best_score,
             "steps_count": len(state.audit_trail),
+            "status": "REJECTED" if state.error else "SUCCESS",
         }
         raw_json = json.dumps(seal_payload, sort_keys=True, ensure_ascii=False)
-        state.seal_hash = hashlib.sha256(raw_json.encode("utf-8")).hexdigest()[:16]
+        raw_bytes = raw_json.encode("utf-8")
+
+        if self.secret_key:
+            key_bytes = self.secret_key.encode("utf-8") if isinstance(self.secret_key, str) else self.secret_key
+            state.seal_hash = hmac.new(key_bytes, raw_bytes, hashlib.sha256).hexdigest()[:16]
+            sig_type = "HMAC-SHA256"
+        else:
+            state.seal_hash = hashlib.sha256(raw_bytes).hexdigest()[:16]
+            sig_type = "SHA256-DIGEST"
+
         if state.final_artifact:
             state.final_artifact["sha256_seal"] = state.seal_hash
-            state.final_artifact["seal_payload_sha256"] = hashlib.sha256(raw_json.encode("utf-8")).hexdigest()
-        self.log(state, "Ижа (SEAL)", f"Печать контекста установлена: {state.seal_hash}")
+            state.final_artifact["signature_type"] = sig_type
+            state.final_artifact["seal_payload_sha256"] = hashlib.sha256(raw_bytes).hexdigest()
+        self.log(state, "Ижа (SEAL)", f"Печать контекста ({sig_type}) установлена: {state.seal_hash}")
 
     def op_audit(self, state: PipelineState) -> None:
         self.log(state, "Есть (AUDIT)", "Контрольная верификация выходного артефакта...")
         state.is_valid = bool(
             state.final_artifact
+            and not state.error
             and state.final_artifact.get("answer") is not None
             and state.seal_hash is not None
         )
 
-    def run(self, task_text: str, candidates: list[dict] | None = None) -> PipelineState:
+    def run(
+        self,
+        task_text: str,
+        candidates: list[dict] | None = None,
+        constraints: TaskConstraints | None = None,
+    ) -> PipelineState:
         t0 = time.monotonic()
-        state = self.op_az(task_text)
+        state = self.op_az(task_text, constraints=constraints)
         self.op_vedi(state, candidates=candidates)
+        self.op_est(state)
+        self.op_myslite(state)
+        self.op_ksi(state)
+        self.op_fita(state)
+        self.op_zemlya(state)
+        self.op_ija(state)
+        self.op_audit(state)
+        state.execution_time = round(time.monotonic() - t0, 4)
+        return state
+
+    def run_spec(self, spec: TaskSpecification) -> PipelineState:
+        """Execute directly from typed TaskSpecification bypassing regex extraction."""
+        t0 = time.monotonic()
+        state = PipelineState(
+            task_description=spec.goal,
+            target_type=spec.domain,
+            evidence=list(spec.candidates),
+            initial_value=spec.initial_value,
+            constraints=spec.constraints,
+        )
+        self.log(state, "Азъ (INIT)", f"Спецификация загружена. Домен: {spec.domain.upper()}")
         self.op_est(state)
         self.op_myslite(state)
         self.op_ksi(state)

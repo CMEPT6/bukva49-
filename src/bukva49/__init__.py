@@ -20,10 +20,10 @@ from .engine import (
     make_tasks,
     parse,
 )
-from .pipeline import BukvaAgentPipeline, PipelineState
+from .pipeline import BukvaAgentPipeline, PipelineState, TaskConstraints, TaskSpecification
 from .search import experiment, mutate, search
 
-__version__ = "0.7.0"
+__version__ = "0.7.1"
 __all__ = [
     "NAMES",
     "OPS",
@@ -44,4 +44,6 @@ __all__ = [
     "experiment",
     "BukvaAgentPipeline",
     "PipelineState",
+    "TaskConstraints",
+    "TaskSpecification",
 ]
