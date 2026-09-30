@@ -17,6 +17,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent / "src"))
 from bukva49 import EVOLVED, NAMES, OPS, Task, evaluate, execute, make_tasks
 from bukva49.pipeline import BukvaAgentPipeline
 from llm_benchmark import cases
+from operator_table import LABELS, count_noop_ops
 
 
 def setup_encoding() -> None:
@@ -69,33 +70,22 @@ def run_control_comparison(count: int = 4000, seed: int = 42) -> dict:
 
 
 def analyze_operators(exhaustive: bool = False) -> dict:
-    print("\n[2/4] Инспекция активности 49 операторов матрицы...")
-    
-    # Классификация операторов по функциональному влиянию на принятие решений:
-    # 1. 12 активных операторов, непосредственно изменяющих выбор кандидата или отсекающих варианты:
-    decision_drivers = {
-        "Вѣди", "Добро", "Есть", "Животъ", "Ѕѣло", "Мыслите", 
-        "Отъ", "Ща", "Еръ", "Йота", "Кси", "Фита", "Ижица"
-    }
-    # 2. 20 операторов аудиторского следа, контрольных проверок и криптографии:
-    audit_guardrails = {
-        "Азъ", "Боги", "Глаголи", "Есмь", "Земля", "Иже", "Ижеи", "Инить", 
-        "Гервь", "Како", "Людие", "Нашъ", "Онъ", "Покои", "Рѣци", "Слово", 
-        "Твѣрдо", "Фѣртъ", "Пси", "Ижа"
-    }
-    # 3. 17 зарезервированных операторов семантического расширения (stubs):
-    reserved_stubs = set(NAMES) - decision_drivers - audit_guardrails
+    print("\n[2/4] Инспекция активности 49 операторов матрицы (динамический замер)...")
+    cats = count_noop_ops()
+    n_decision = len(cats["decision"])
+    n_log = len(cats["log_only"])
+    n_noop = len(cats["noop"])
 
-    print(f"  • Операторы, влияющие на выбор решения (FSM logic): {len(decision_drivers)}/49")
-    print(f"  • Аудиторские, сигнальные и криптографические (Audit & Guardrails): {len(audit_guardrails)}/49")
-    print(f"  • Зарезервированные операторы расширенного профиля (Reserved stubs): {len(reserved_stubs)}/49")
-    print("    Честный вывод: В текущем профиле закупок активны 32 оператора (12 логики + 20 аудита).")
-    print("    Остальные 17 зарезервированы под многокритериальные и теоретико-игровые расширения.")
+    print(f"  • {LABELS['decision']}: {n_decision}/49")
+    print(f"  • {LABELS['log_only']}: {n_log}/49")
+    print(f"  • {LABELS['noop']}: {n_noop}/49")
+    print(f"    Честный вывод: Активны {n_decision + n_log} операторов ({n_decision} логики + {n_log} журнала/служебных).")
+    print(f"    Остальные {n_noop} не влияют на состояние при текущем распределении задач make_tasks.")
 
     return {
-        "decision_drivers": len(decision_drivers),
-        "audit_guardrails": len(audit_guardrails),
-        "reserved_stubs": len(reserved_stubs),
+        "decision_drivers": n_decision,
+        "audit_guardrails": n_log,
+        "reserved_stubs": n_noop,
     }
 
 
