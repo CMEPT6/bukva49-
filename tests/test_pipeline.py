@@ -132,6 +132,85 @@ class PipelinePackageTest(unittest.TestCase):
         self.assertEqual(len(res.seal_hash), 64, "HMAC-SHA256 must be full 64 hex characters (256-bit)!")
         self.assertEqual(res.artifact["signature_type"], "HMAC-SHA256")
 
+    def test_strict_negation_and_boundary_phrase(self):
+        """Test that 'Любой срок свыше 5 дней недопустим' correctly enforces max_days=5."""
+        pipeline = BukvaAgentPipeline()
+        candidates = [
+            {"id": "A", "name": "Vendor Fast", "price": 2000, "delivery": 100, "days": 3, "confirmed": True},
+            {"id": "B", "name": "Vendor Slow", "price": 1000, "delivery": 50, "days": 9, "confirmed": True},
+        ]
+        res = pipeline.run("Закупка серверов. Любой срок свыше 5 дней недопустим.", candidates=candidates)
+        self.assertTrue(res.is_valid)
+        self.assertEqual(res.selected_id, "Vendor Fast")
+        self.assertEqual(res.best_score, 2100)
+
+    def test_dumping_threshold_without_reference_price_fails_closed(self):
+        """Test that providing dumping_threshold_pct without reference_price fails closed."""
+        pipeline = BukvaAgentPipeline()
+        spec = TaskSpecification(
+            domain="offer",
+            goal="Закупка оборудования",
+            candidates=[{"id": "c1", "name": "Vendor", "price": 1000, "delivery": 0, "confirmed": True}],
+            constraints=TaskConstraints(dumping_threshold_pct=20.0, reference_price=None),
+        )
+        res = pipeline.run_spec(spec)
+        self.assertFalse(res.is_valid)
+        self.assertEqual(res.error, "Dumping threshold specified without reference_price")
+        self.assertEqual(res.artifact["status"], "REJECTED")
+
+    def test_dumping_disqualification_and_anti_dumping_deposit(self):
+        """Test dumping disqualification vs admission with calculated anti-dumping deposit."""
+        pipeline = BukvaAgentPipeline()
+        # Reference price 100,000, dumping threshold 20% -> floor = 80,000
+        # Vendor Cheap is 60,000 (< 80,000)
+        # Vendor Normal is 90,000
+        candidates = [
+            {"id": "c1", "name": "Vendor Cheap", "price": 60000, "delivery": 0, "confirmed": True},
+            {"id": "c2", "name": "Vendor Normal", "price": 90000, "delivery": 0, "confirmed": True},
+        ]
+
+        # Case 1: allow_dumping_with_deposit=False -> Vendor Cheap is disqualified, Vendor Normal wins
+        spec_no_deposit = TaskSpecification(
+            domain="offer",
+            goal="Закупка",
+            candidates=candidates,
+            constraints=TaskConstraints(dumping_threshold_pct=20.0, reference_price=100000, allow_dumping_with_deposit=False),
+        )
+        res1 = pipeline.run_spec(spec_no_deposit)
+        self.assertTrue(res1.is_valid)
+        self.assertEqual(res1.selected_id, "Vendor Normal")
+        self.assertIsNone(res1.anti_dumping_deposit)
+
+        # Case 2: allow_dumping_with_deposit=True -> Vendor Cheap admitted with deposit = 80000 - 60000 = 20000
+        spec_with_deposit = TaskSpecification(
+            domain="offer",
+            goal="Закупка",
+            candidates=candidates,
+            constraints=TaskConstraints(dumping_threshold_pct=20.0, reference_price=100000, allow_dumping_with_deposit=True),
+        )
+        res2 = pipeline.run_spec(spec_with_deposit)
+        self.assertTrue(res2.is_valid)
+        self.assertEqual(res2.selected_id, "Vendor Cheap")
+        self.assertEqual(res2.anti_dumping_deposit, 20000.0)
+        self.assertEqual(res2.artifact["required_anti_dumping_deposit"], 20000.0)
+
+    def test_task_constraints_schema_all_fields(self):
+        """Test TaskConstraints dataclass with all 6 documented fields."""
+        c = TaskConstraints(
+            max_days=10,
+            require_confirmed=True,
+            max_budget=500000,
+            dumping_threshold_pct=15.0,
+            reference_price=400000,
+            allow_dumping_with_deposit=True,
+        )
+        self.assertEqual(c.max_days, 10)
+        self.assertTrue(c.require_confirmed)
+        self.assertEqual(c.max_budget, 500000)
+        self.assertEqual(c.dumping_threshold_pct, 15.0)
+        self.assertEqual(c.reference_price, 400000)
+        self.assertTrue(c.allow_dumping_with_deposit)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,0 +1,333 @@
+[
+ {
+  "id": "S001",
+  "synthetic": true,
+  "method": "запрос ценовых предложений",
+  "rules_version": "условия лота (не норматив)",
+  "trap": "дешёвый, но не подтверждён",
+  "text": "Закупка серверных стоек. Требования: поставка не более 10 календарных дней; к участию допускаются только поставщики с подтверждёнными документами.",
+  "offers_text": "Поставщик А: цена 480 000 тг, доставка 20 000 тг, срок 7 дней, документы подтверждены.\nПоставщик Б: цена 450 000 тг, доставка 10 000 тг, срок 6 дней, пакет документов не подтверждён.\nПоставщик В: цена 470 000 тг, доставка 5 000 тг, срок 9 дней, документы подтверждены.",
+  "gold": {
+   "constraints": {
+    "max_days": 10,
+    "max_budget": null,
+    "require_confirmed": true,
+    "dumping_threshold_pct": null,
+    "reference_price": null,
+    "allow_dumping_with_deposit": false
+   },
+   "quotes": {
+    "max_days": "не более 10 календарных дней"
+   },
+   "candidates": [
+    {
+     "id": "А",
+     "name": "А",
+     "price": 480000,
+     "delivery": 20000,
+     "days": 7,
+     "confirmed": true
+    },
+    {
+     "id": "Б",
+     "name": "Б",
+     "price": 450000,
+     "delivery": 10000,
+     "days": 6,
+     "confirmed": false
+    },
+    {
+     "id": "В",
+     "name": "В",
+     "price": 470000,
+     "delivery": 5000,
+     "days": 9,
+     "confirmed": true
+    }
+   ],
+   "winner_id": "В"
+  }
+ },
+ {
+  "id": "S002",
+  "synthetic": true,
+  "method": "запрос ценовых предложений",
+  "rules_version": "условия лота (не норматив)",
+  "trap": "рабочие дни вместо календарных",
+  "text": "Закупка ноутбуков. Срок поставки не более 10 календарных дней. Подтверждённые поставщики.",
+  "offers_text": "А: 300 000 тг, доставка 0, срок поставки 12 рабочих дней, документы подтверждены.\nБ: 320 000 тг, доставка 0, срок поставки 9 календарных дней, документы подтверждены.",
+  "gold": {
+   "constraints": {
+    "max_days": 10,
+    "max_budget": null,
+    "require_confirmed": true,
+    "dumping_threshold_pct": null,
+    "reference_price": null,
+    "allow_dumping_with_deposit": false
+   },
+   "quotes": {
+    "max_days": "не более 10 календарных дней"
+   },
+   "candidates": [
+    {
+     "id": "А",
+     "name": "А",
+     "price": 300000,
+     "delivery": 0,
+     "days": 12,
+     "confirmed": true
+    },
+    {
+     "id": "Б",
+     "name": "Б",
+     "price": 320000,
+     "delivery": 0,
+     "days": 9,
+     "confirmed": true
+    }
+   ],
+   "winner_id": "Б"
+  }
+ },
+ {
+  "id": "S003",
+  "synthetic": true,
+  "method": "запрос ценовых предложений",
+  "rules_version": "условия лота (не норматив)",
+  "trap": "бюджет с учётом доставки",
+  "text": "Закупка мебели. Предельная сумма закупки с доставкой - 1 000 000 тг. Подтверждённые поставщики.",
+  "offers_text": "А: 990 000 тг + доставка 30 000 тг, документы подтверждены.\nБ: 940 000 тг + доставка 40 000 тг, документы подтверждены.\nВ: 900 000 тг + доставка 120 000 тг, документы подтверждены.",
+  "gold": {
+   "constraints": {
+    "max_days": null,
+    "max_budget": 1000000,
+    "require_confirmed": true,
+    "dumping_threshold_pct": null,
+    "reference_price": null,
+    "allow_dumping_with_deposit": false
+   },
+   "quotes": {
+    "max_budget": "Предельная сумма закупки с доставкой - 1 000 000 тг"
+   },
+   "candidates": [
+    {
+     "id": "А",
+     "name": "А",
+     "price": 990000,
+     "delivery": 30000,
+     "days": null,
+     "confirmed": true
+    },
+    {
+     "id": "Б",
+     "name": "Б",
+     "price": 940000,
+     "delivery": 40000,
+     "days": null,
+     "confirmed": true
+    },
+    {
+     "id": "В",
+     "name": "В",
+     "price": 900000,
+     "delivery": 120000,
+     "days": null,
+     "confirmed": true
+    }
+   ],
+   "winner_id": "Б"
+  }
+ },
+ {
+  "id": "S004",
+  "synthetic": true,
+  "method": "запрос ценовых предложений",
+  "rules_version": "условия лота (не норматив)",
+  "trap": "демпинг не допускается",
+  "text": "Закупка оргтехники. Выделенная сумма 1 000 000 тг. Условие лота: цена ниже выделенной суммы более чем на 20% считается демпинговой и не допускается. Подтверждённые поставщики.",
+  "offers_text": "А: 650 000 тг, доставка 0, документы подтверждены.\nБ: 850 000 тг, доставка 0, документы подтверждены.\nВ: 820 000 тг, доставка 50 000 тг, документы подтверждены.",
+  "gold": {
+   "constraints": {
+    "max_days": null,
+    "max_budget": null,
+    "require_confirmed": true,
+    "dumping_threshold_pct": 20.0,
+    "reference_price": 1000000,
+    "allow_dumping_with_deposit": false
+   },
+   "quotes": {
+    "dumping_threshold_pct": "более чем на 20% считается демпинговой и не допускается",
+    "reference_price": "Выделенная сумма 1 000 000 тг"
+   },
+   "candidates": [
+    {
+     "id": "А",
+     "name": "А",
+     "price": 650000,
+     "delivery": 0,
+     "days": null,
+     "confirmed": true
+    },
+    {
+     "id": "Б",
+     "name": "Б",
+     "price": 850000,
+     "delivery": 0,
+     "days": null,
+     "confirmed": true
+    },
+    {
+     "id": "В",
+     "name": "В",
+     "price": 820000,
+     "delivery": 50000,
+     "days": null,
+     "confirmed": true
+    }
+   ],
+   "winner_id": "Б"
+  }
+ },
+ {
+  "id": "S005",
+  "synthetic": true,
+  "method": "запрос ценовых предложений",
+  "rules_version": "условия лота (не норматив)",
+  "trap": "демпинг допускается с обеспечением (обеспечение 350 000 тг ядро пока не считает)",
+  "text": "Закупка оргтехники. Выделенная сумма 1 000 000 тг. Условие лота: цена ниже выделенной суммы более чем на 20% допускается при внесении антидемпингового обеспечения. Подтверждённые поставщики.",
+  "offers_text": "А: 650 000 тг, доставка 0, документы подтверждены, готов внести обеспечение.\nБ: 850 000 тг, доставка 0, документы подтверждены.",
+  "gold": {
+   "constraints": {
+    "max_days": null,
+    "max_budget": null,
+    "require_confirmed": true,
+    "dumping_threshold_pct": 20.0,
+    "reference_price": 1000000,
+    "allow_dumping_with_deposit": true
+   },
+   "quotes": {
+    "dumping_threshold_pct": "более чем на 20% допускается при внесении антидемпингового обеспечения",
+    "reference_price": "Выделенная сумма 1 000 000 тг",
+    "allow_dumping_with_deposit": "допускается при внесении антидемпингового обеспечения"
+   },
+   "candidates": [
+    {
+     "id": "А",
+     "name": "А",
+     "price": 650000,
+     "delivery": 0,
+     "days": null,
+     "confirmed": true
+    },
+    {
+     "id": "Б",
+     "name": "Б",
+     "price": 850000,
+     "delivery": 0,
+     "days": null,
+     "confirmed": true
+    }
+   ],
+   "winner_id": "А"
+  }
+ },
+ {
+  "id": "S006",
+  "synthetic": true,
+  "method": "запрос ценовых предложений",
+  "rules_version": "условия лота (не норматив)",
+  "trap": "нет допустимого победителя: отказ - верный ответ",
+  "text": "Закупка канцтоваров. Срок поставки не более 5 календарных дней. Предельная сумма 200 000 тг. Подтверждённые поставщики.",
+  "offers_text": "А: 150 000 тг, доставка 0, срок 8 дней, документы подтверждены.\nБ: 120 000 тг, доставка 0, срок 3 дня, документы не подтверждены.\nВ: 210 000 тг, доставка 0, срок 4 дня, документы подтверждены.",
+  "gold": {
+   "constraints": {
+    "max_days": 5,
+    "max_budget": 200000,
+    "require_confirmed": true,
+    "dumping_threshold_pct": null,
+    "reference_price": null,
+    "allow_dumping_with_deposit": false
+   },
+   "quotes": {
+    "max_days": "не более 5 календарных дней",
+    "max_budget": "Предельная сумма 200 000 тг"
+   },
+   "candidates": [
+    {
+     "id": "А",
+     "name": "А",
+     "price": 150000,
+     "delivery": 0,
+     "days": 8,
+     "confirmed": true
+    },
+    {
+     "id": "Б",
+     "name": "Б",
+     "price": 120000,
+     "delivery": 0,
+     "days": 3,
+     "confirmed": false
+    },
+    {
+     "id": "В",
+     "name": "В",
+     "price": 210000,
+     "delivery": 0,
+     "days": 4,
+     "confirmed": true
+    }
+   ],
+   "winner_id": null
+  }
+ },
+ {
+  "id": "S007",
+  "synthetic": true,
+  "method": "запрос ценовых предложений",
+  "rules_version": "условия лота (не норматив)",
+  "trap": "цены с НДС и без НДС",
+  "text": "Закупка сканеров. Предельная сумма закупки с НДС - 600 000 тг. Сравнение цен - с учётом НДС 12%. Подтверждённые поставщики.",
+  "offers_text": "А: 500 000 тг без НДС.\nБ: 540 000 тг с НДС.\nВ: 620 000 тг с НДС.\nДокументы у всех подтверждены.",
+  "gold": {
+   "constraints": {
+    "max_days": null,
+    "max_budget": 600000,
+    "require_confirmed": true,
+    "dumping_threshold_pct": null,
+    "reference_price": null,
+    "allow_dumping_with_deposit": false
+   },
+   "quotes": {
+    "max_budget": "Предельная сумма закупки с НДС - 600 000 тг"
+   },
+   "candidates": [
+    {
+     "id": "А",
+     "name": "А",
+     "price": 560000,
+     "delivery": 0,
+     "days": null,
+     "confirmed": true
+    },
+    {
+     "id": "Б",
+     "name": "Б",
+     "price": 540000,
+     "delivery": 0,
+     "days": null,
+     "confirmed": true
+    },
+    {
+     "id": "В",
+     "name": "В",
+     "price": 620000,
+     "delivery": 0,
+     "days": null,
+     "confirmed": true
+    }
+   ],
+   "winner_id": "Б"
+  }
+ }
+]

@@ -22,10 +22,8 @@ class TaskConstraints:
     require_confirmed: bool = True
     max_budget: int | None = None
     dumping_threshold_pct: float | None = None
-    allow_dumping_with_deposit: bool = False
     reference_price: int | None = None
-    allowed_statuses: tuple[str, ...] = ("проведено", "подтверждено", "утверждено", "completed", "approved")
-    custom_rules: dict[str, Any] = field(default_factory=dict)
+    allow_dumping_with_deposit: bool = False
 
 
 @dataclass
@@ -86,6 +84,12 @@ class PipelineState:
     @property
     def artifact(self) -> dict | None:
         return self.final_artifact
+
+    @property
+    def anti_dumping_deposit(self) -> float | None:
+        if self.final_artifact:
+            return self.final_artifact.get("required_anti_dumping_deposit")
+        return None
 
 
 class BukvaAgentPipeline:
@@ -203,22 +207,19 @@ class BukvaAgentPipeline:
             max_budget = state.constraints.max_budget
             lower_desc = state.task_description.lower()
 
-            # Проверка явного отрицания ограничений по срокам
-            negations = (
-                "нет условий по срокам", "без ограничений по срокам", "срок не имеет значения",
-                "срок не важен", "любой срок", "без лимита по сроку", "условий по срокам нет"
-            )
-            has_negative_delivery = any(neg in lower_desc for neg in negations)
+            # Проверяем, есть ли в тексте числа с единицами времени (дней/суток)
+            has_time_digits = bool(re.search(r"\d+\s*(?:дней|суток|дн|дня)", lower_desc))
 
-            # 2. Если лимит не задан явно и нет отрицания, парсим из текста
-            if max_days is None and not has_negative_delivery:
+            # 2. Если лимит не задан явно в схеме:
+            if max_days is None:
                 m_days = re.search(
                     r"(?:days\s*<=\s*(\d+)|"
-                    r"не более\s*(\d+)\s*(?:дней|суток|дн)|"
-                    r"максимум\s*(\d+)\s*(?:дней|суток|дн)|"
-                    r"до\s*(\d+)\s*(?:дней|суток|дн)|"
-                    r"срок\s*(?:до\s*)?(\d+)\s*(?:дней|суток|дн)|"
-                    r"в пределах\s*(\d+)\s*(?:дней|суток|дн))",
+                    r"не более\s*(\d+)\s*(?:дней|суток|дн|дня)|"
+                    r"максимум\s*(\d+)\s*(?:дней|суток|дн|дня)|"
+                    r"до\s*(\d+)\s*(?:дней|суток|дн|дня)|"
+                    r"свыше\s*(\d+)\s*(?:дней|суток|дн|дня)\s*недопустим|"
+                    r"срок\s*(?:до\s*)?(\d+)\s*(?:дней|суток|дн|дня)|"
+                    r"в пределах\s*(\d+)\s*(?:дней|суток|дн|дня))",
                     state.task_description,
                     re.IGNORECASE,
                 )
@@ -229,15 +230,23 @@ class BukvaAgentPipeline:
                             break
 
             # 3. Принцип FAIL-CLOSED:
-            # Если текст явно говорит об ограничении сроков, но число не извлечено и нет отрицания,
-            # мы ОБЯЗАНЫ отказать во избежание ложноположительной сертификации!
-            mentions_delivery_limit = any(
-                w in lower_desc for w in ("дней", "суток", "дн", "срок", "days", "дедлайн", "лимит", "максимум", "не более")
-            ) and not has_negative_delivery
+            # Если рядом со словами о сроке есть число с единицей времени, это строго ограничение, а не отрицание!
+            # Снимать ограничение отрицанием разрешено ТОЛЬКО если чисел с единицами времени нет вообще.
+            has_negative_delivery = False
+            if not has_time_digits:
+                negations = (
+                    "нет условий по срокам", "без ограничений по срокам", "срок не имеет значения",
+                    "срок не важен", "без лимита по сроку", "условий по срокам нет"
+                )
+                has_negative_delivery = any(neg in lower_desc for neg in negations)
 
+            mentions_delivery_limit = (
+                any(w in lower_desc for w in ("дней", "суток", "дн", "срок", "days", "дедлайн", "лимит", "максимум", "не более", "свыше"))
+                and not has_negative_delivery
+            )
             has_candidate_days = any("days" in item for item in state.evidence)
 
-            if max_days is None and mentions_delivery_limit and has_candidate_days:
+            if max_days is None and mentions_delivery_limit and (has_candidate_days or has_time_digits):
                 self.log(
                     state,
                     "Есть (VERIFY)",
@@ -246,6 +255,18 @@ class BukvaAgentPipeline:
                 )
                 state.is_valid = False
                 state.error = "Unresolved delivery constraint (fail-closed)"
+                state.verified_candidates = []
+                return
+
+            # Проверка консистентности антидемпинговых параметров
+            if state.constraints.dumping_threshold_pct is not None and state.constraints.reference_price is None:
+                self.log(
+                    state,
+                    "Есть (VERIFY)",
+                    "FAIL-CLOSED: Задан порог демпинга (dumping_threshold_pct), но отсутствует базовая цена (reference_price).",
+                )
+                state.is_valid = False
+                state.error = "Dumping threshold specified without reference_price"
                 state.verified_candidates = []
                 return
 
@@ -276,9 +297,19 @@ class BukvaAgentPipeline:
                 # Применение антидемпингового порога (если задан)
                 if state.constraints.dumping_threshold_pct and state.constraints.reference_price:
                     floor_price = state.constraints.reference_price * (1.0 - state.constraints.dumping_threshold_pct / 100.0)
-                    if price < floor_price and not state.constraints.allow_dumping_with_deposit:
-                        is_valid = False
-                        reasons.append(f"демпинг: цена {price} < порога {floor_price:.0f}")
+                    if price < floor_price:
+                        if not state.constraints.allow_dumping_with_deposit:
+                            is_valid = False
+                            reasons.append(f"демпинг: цена {price} < порога {floor_price:.0f}")
+                        else:
+                            deposit = round(floor_price - price, 2)
+                            item["anti_dumping_deposit"] = deposit
+                            self.log(
+                                state,
+                                "Есть (VERIFY)",
+                                f"  [!] {item.get('name') or item.get('id')}: Демпинговая цена ({price} < {floor_price:.0f}), "
+                                f"допущен при условии внесения антидемпингового обеспечения {deposit} руб.",
+                            )
 
                 name = item.get("name") or item.get("id") or "?"
                 if is_valid:
@@ -348,14 +379,17 @@ class BukvaAgentPipeline:
                 delivery = item.get("delivery_cost", item.get("delivery", 0))
                 price = item["price"]
                 total = price + delivery
-                computed.append({
+                entry = {
                     "id": item.get("id"),
                     "name": item.get("name") or item.get("id"),
                     "total_cost": total,
                     "price": price,
                     "delivery": delivery,
                     "confirmed": item.get("confirmed", True),
-                })
+                }
+                if "anti_dumping_deposit" in item:
+                    entry["anti_dumping_deposit"] = item["anti_dumping_deposit"]
+                computed.append(entry)
                 self.log(state, "Мыслите (REASON)", f"  Расчёт {computed[-1]['name']}: {price} + {delivery} = {total}")
             state.computed_metrics = computed
 
@@ -439,6 +473,10 @@ class BukvaAgentPipeline:
 
     def op_zemlya(self, state: PipelineState) -> None:
         self.log(state, "Земля (GROUND)", "Формирование сертифицированного JSON-артефакта...")
+        deposit = None
+        if state.target_type == "offer" and state.ranked_results:
+            deposit = state.ranked_results[0].get("anti_dumping_deposit")
+
         artifact = {
             "status": "REJECTED" if state.error else "SUCCESS",
             "answer": state.selected_result,
@@ -446,6 +484,7 @@ class BukvaAgentPipeline:
             "pipeline": "БУКВА-49 (Азъ -> Вѣди -> Есть -> Мыслите -> Кси -> Фита -> Земля -> Ижа)",
             "selected_metric": state.best_score,
             "verified_candidates_count": len(state.verified_candidates),
+            "required_anti_dumping_deposit": deposit,
             "audit_trail": state.audit_trail,
             "error": state.error,
         }
@@ -461,6 +500,8 @@ class BukvaAgentPipeline:
                 "require_confirmed": state.constraints.require_confirmed,
                 "max_budget": state.constraints.max_budget,
                 "dumping_threshold_pct": state.constraints.dumping_threshold_pct,
+                "reference_price": state.constraints.reference_price,
+                "allow_dumping_with_deposit": state.constraints.allow_dumping_with_deposit,
             },
             "selected_result": state.selected_result,
             "best_score": state.best_score,
