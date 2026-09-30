@@ -1,7 +1,8 @@
 """High-level cognitive agent pipeline module for BUKVA-49.
 
 Deterministic execution graph for multi-agent reasoning, verification, and audit trail.
-Features fail-closed validation, structured task schemas, and cryptographic HMAC-SHA256 seals.
+Features fail-closed validation, structured task schemas, budget enforcement,
+and cryptographic HMAC-SHA256 seals (full 256-bit).
 """
 from __future__ import annotations
 
@@ -20,6 +21,9 @@ class TaskConstraints:
     max_days: int | None = None
     require_confirmed: bool = True
     max_budget: int | None = None
+    dumping_threshold_pct: float | None = None
+    allow_dumping_with_deposit: bool = False
+    reference_price: int | None = None
     allowed_statuses: tuple[str, ...] = ("проведено", "подтверждено", "утверждено", "completed", "approved")
     custom_rules: dict[str, Any] = field(default_factory=dict)
 
@@ -94,7 +98,7 @@ class BukvaAgentPipeline:
     5. Кси     (COMPARE)    - Сортировка и ранжирование
     6. Фита    (SYNTHESIZE) - Выбор оптимального решения
     7. Земля   (GROUND)     - Формирование верифицированного артефакта
-    8. Ижа     (SEAL)       - Криптографическая печать HMAC-SHA256
+    8. Ижа     (SEAL)       - Криптографическая печать HMAC-SHA256 (256 бит)
     9. Есть    (AUDIT)      - Финальная верификация контракта выходных данных
     """
 
@@ -131,6 +135,23 @@ class BukvaAgentPipeline:
             }
         else:
             state.target_type = "generic"
+
+        # Извлечение бюджета из текста, если не задан явно
+        if state.constraints.max_budget is None:
+            m_budget = re.search(
+                r"(?:бюджет(?:\s*лота)?\s*(?:до\s*)?(\d+)|"
+                r"лимит(?:\s*цены)?\s*(?:до\s*)?(\d+)|"
+                r"не более\s*(\d+)\s*(?:руб|тг|тенге|₸|₽|\$|usd|eur))",
+                task_text,
+                re.IGNORECASE,
+            )
+            if m_budget:
+                for grp in m_budget.groups():
+                    if grp:
+                        state.constraints.max_budget = int(grp)
+                        self.log(state, "Азъ (INIT)", f"Извлечён лимит бюджета: {state.constraints.max_budget}")
+                        break
+
         self.log(state, "Азъ (INIT)", f"Определён домен задачи: {state.target_type.upper()}")
         return state
 
@@ -179,9 +200,18 @@ class BukvaAgentPipeline:
         if state.target_type == "offer":
             # 1. Приоритет структурированной схемы (Task Schema as Data)
             max_days = state.constraints.max_days
+            max_budget = state.constraints.max_budget
+            lower_desc = state.task_description.lower()
 
-            # 2. Если лимит не задан явно, парсим из текста
-            if max_days is None:
+            # Проверка явного отрицания ограничений по срокам
+            negations = (
+                "нет условий по срокам", "без ограничений по срокам", "срок не имеет значения",
+                "срок не важен", "любой срок", "без лимита по сроку", "условий по срокам нет"
+            )
+            has_negative_delivery = any(neg in lower_desc for neg in negations)
+
+            # 2. Если лимит не задан явно и нет отрицания, парсим из текста
+            if max_days is None and not has_negative_delivery:
                 m_days = re.search(
                     r"(?:days\s*<=\s*(\d+)|"
                     r"не более\s*(\d+)\s*(?:дней|суток|дн)|"
@@ -199,12 +229,12 @@ class BukvaAgentPipeline:
                             break
 
             # 3. Принцип FAIL-CLOSED:
-            # Если текст явно говорит об ограничении сроков, но число не извлечено,
+            # Если текст явно говорит об ограничении сроков, но число не извлечено и нет отрицания,
             # мы ОБЯЗАНЫ отказать во избежание ложноположительной сертификации!
-            lower_desc = state.task_description.lower()
             mentions_delivery_limit = any(
                 w in lower_desc for w in ("дней", "суток", "дн", "срок", "days", "дедлайн", "лимит", "максимум", "не более")
-            )
+            ) and not has_negative_delivery
+
             has_candidate_days = any("days" in item for item in state.evidence)
 
             if max_days is None and mentions_delivery_limit and has_candidate_days:
@@ -223,16 +253,39 @@ class BukvaAgentPipeline:
             for item in state.evidence:
                 confirmed = item.get("confirmed", item.get("source_verified", True))
                 days = item.get("days")
-                is_valid = bool(confirmed)
+                price = item.get("price", 0)
+                delivery = item.get("delivery_cost", item.get("delivery", 0))
+                total_cost = price + delivery
+
+                is_valid = True
+                reasons = []
+
+                if state.constraints.require_confirmed and not confirmed:
+                    is_valid = False
+                    reasons.append("не подтверждён")
+
                 if max_days is not None and days is not None and days > max_days:
                     is_valid = False
+                    reasons.append(f"срок {days} > {max_days}")
+
+                # Применение ограничения по бюджету (max_budget)
+                if max_budget is not None and total_cost > max_budget:
+                    is_valid = False
+                    reasons.append(f"превышен бюджет {total_cost} > {max_budget}")
+
+                # Применение антидемпингового порога (если задан)
+                if state.constraints.dumping_threshold_pct and state.constraints.reference_price:
+                    floor_price = state.constraints.reference_price * (1.0 - state.constraints.dumping_threshold_pct / 100.0)
+                    if price < floor_price and not state.constraints.allow_dumping_with_deposit:
+                        is_valid = False
+                        reasons.append(f"демпинг: цена {price} < порога {floor_price:.0f}")
+
                 name = item.get("name") or item.get("id") or "?"
                 if is_valid:
                     valid.append(item)
                     self.log(state, "Есть (VERIFY)", f"  [+] {name}: Верифицирован и допущен")
                 else:
-                    reason = "не подтверждён" if not confirmed else f"срок {days} > {max_days}"
-                    self.log(state, "Есть (VERIFY)", f"  [-] {name}: Дисквалифицирован ({reason})")
+                    self.log(state, "Есть (VERIFY)", f"  [-] {name}: Дисквалифицирован ({', '.join(reasons)})")
 
             if not valid:
                 self.log(state, "Есть (VERIFY)", "FAIL-CLOSED: Ни один кандидат не прошёл фильтр условий.")
@@ -399,13 +452,15 @@ class BukvaAgentPipeline:
         state.final_artifact = artifact
 
     def op_ija(self, state: PipelineState) -> None:
-        self.log(state, "Ижа (SEAL)", "Криптографическая печать полного контекста (HMAC / SHA-256)...")
+        self.log(state, "Ижа (SEAL)", "Криптографическая печать полного контекста (HMAC-SHA256 256-бит)...")
         seal_payload = {
             "evidence": state.evidence,
             "initial_value": state.initial_value,
             "constraints": {
                 "max_days": state.constraints.max_days,
                 "require_confirmed": state.constraints.require_confirmed,
+                "max_budget": state.constraints.max_budget,
+                "dumping_threshold_pct": state.constraints.dumping_threshold_pct,
             },
             "selected_result": state.selected_result,
             "best_score": state.best_score,
@@ -415,19 +470,20 @@ class BukvaAgentPipeline:
         raw_json = json.dumps(seal_payload, sort_keys=True, ensure_ascii=False)
         raw_bytes = raw_json.encode("utf-8")
 
+        # Полный 64-символьный 256-битный криптографический хеш/HMAC
         if self.secret_key:
             key_bytes = self.secret_key.encode("utf-8") if isinstance(self.secret_key, str) else self.secret_key
-            state.seal_hash = hmac.new(key_bytes, raw_bytes, hashlib.sha256).hexdigest()[:16]
+            state.seal_hash = hmac.new(key_bytes, raw_bytes, hashlib.sha256).hexdigest()
             sig_type = "HMAC-SHA256"
         else:
-            state.seal_hash = hashlib.sha256(raw_bytes).hexdigest()[:16]
+            state.seal_hash = hashlib.sha256(raw_bytes).hexdigest()
             sig_type = "SHA256-DIGEST"
 
         if state.final_artifact:
             state.final_artifact["sha256_seal"] = state.seal_hash
             state.final_artifact["signature_type"] = sig_type
             state.final_artifact["seal_payload_sha256"] = hashlib.sha256(raw_bytes).hexdigest()
-        self.log(state, "Ижа (SEAL)", f"Печать контекста ({sig_type}) установлена: {state.seal_hash}")
+        self.log(state, "Ижа (SEAL)", f"Печать контекста ({sig_type}) установлена: {state.seal_hash[:16]}... (полный 256-бит)")
 
     def op_audit(self, state: PipelineState) -> None:
         self.log(state, "Есть (AUDIT)", "Контрольная верификация выходного артефакта...")

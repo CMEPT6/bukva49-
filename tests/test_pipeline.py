@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from bukva49.engine import EVOLVED, execute, make_tasks
-from bukva49.pipeline import BukvaAgentPipeline
+from bukva49.pipeline import BukvaAgentPipeline, TaskConstraints, TaskSpecification
 from llm_benchmark import cases
 
 
@@ -66,6 +66,71 @@ class PipelinePackageTest(unittest.TestCase):
         seal2 = state2.seal_hash
 
         self.assertNotEqual(seal1, seal2, "SHA-256 seal must detect tampering with raw candidate price!")
+
+    def test_max_budget_enforcement(self):
+        """Test that candidates exceeding max_budget are disqualified, failing closed if all exceed."""
+        pipeline = BukvaAgentPipeline()
+        candidates = [
+            {"id": "c1", "name": "Vendor Cheap", "price": 40000, "delivery": 2000, "confirmed": True},
+            {"id": "c2", "name": "Vendor Expensive", "price": 70000, "delivery": 5000, "confirmed": True},
+        ]
+        # 1. Budget of 50,000 allows Vendor Cheap (42,000) and disqualifies Vendor Expensive (75,000)
+        spec = TaskSpecification(
+            domain="offer",
+            goal="Закупка оборудования",
+            candidates=candidates,
+            constraints=TaskConstraints(max_budget=50000),
+        )
+        res1 = pipeline.run_spec(spec)
+        self.assertTrue(res1.is_valid)
+        self.assertEqual(res1.selected_id, "Vendor Cheap")
+        self.assertEqual(res1.best_score, 42000)
+
+        # 2. Strict budget of 30,000 disqualifies both -> FAIL-CLOSED
+        spec_strict = TaskSpecification(
+            domain="offer",
+            goal="Закупка оборудования",
+            candidates=candidates,
+            constraints=TaskConstraints(max_budget=30000),
+        )
+        res2 = pipeline.run_spec(spec_strict)
+        self.assertFalse(res2.is_valid)
+        self.assertIsNone(res2.selected_id)
+        self.assertEqual(res2.error, "All candidates disqualified")
+        self.assertEqual(res2.artifact["status"], "REJECTED")
+
+    def test_fail_closed_on_unresolved_constraints(self):
+        """Test that pipeline refuses to certify when delivery constraint text is ambiguous."""
+        pipeline = BukvaAgentPipeline()
+        candidates = [
+            {"id": "c1", "name": "Vendor Late", "price": 10000, "delivery": 500, "days": 9, "confirmed": True}
+        ]
+        # Ambiguous prompt mentions delivery restriction without specific extractable number
+        res = pipeline.run("Срочная закупка, дедлайн критичен, поставка в минимальный срок", candidates=candidates)
+        self.assertFalse(res.is_valid)
+        self.assertIsNone(res.selected_id)
+        self.assertEqual(res.error, "Unresolved delivery constraint (fail-closed)")
+
+    def test_negative_delivery_phrasing_does_not_fail(self):
+        """Test that explicit negation 'условий по срокам нет' does not trigger fail-closed."""
+        pipeline = BukvaAgentPipeline()
+        candidates = [
+            {"id": "c1", "name": "Vendor Normal", "price": 10000, "delivery": 500, "days": 30, "confirmed": True}
+        ]
+        res = pipeline.run("Закупка материалов. Условий по срокам нет.", candidates=candidates)
+        self.assertTrue(res.is_valid)
+        self.assertEqual(res.selected_id, "Vendor Normal")
+
+    def test_full_256bit_hmac_signature(self):
+        """Test that HMAC signature produces full 64-hex (256-bit) tamper-proof signature."""
+        pipeline = BukvaAgentPipeline(secret_key="my-audit-secret-key-2026")
+        candidates = [
+            {"id": "c1", "name": "Approved Vendor", "price": 25000, "delivery": 1000, "confirmed": True}
+        ]
+        res = pipeline.run("Закупка техники", candidates=candidates)
+        self.assertTrue(res.is_valid)
+        self.assertEqual(len(res.seal_hash), 64, "HMAC-SHA256 must be full 64 hex characters (256-bit)!")
+        self.assertEqual(res.artifact["signature_type"], "HMAC-SHA256")
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "bukva49"
-version = "0.7.1"
+version = "0.7.2"
 description = "Lightweight, zero-dependency neuro-symbolic cognitive pipeline and DSL based on the 7x7 matrix architecture"
 readme = "README.md"
 requires-python = ">=3.10"

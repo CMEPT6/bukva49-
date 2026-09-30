@@ -23,7 +23,7 @@ from .engine import (
 from .pipeline import BukvaAgentPipeline, PipelineState, TaskConstraints, TaskSpecification
 from .search import experiment, mutate, search
 
-__version__ = "0.7.1"
+__version__ = "0.7.2"
 __all__ = [
     "NAMES",
     "OPS",
