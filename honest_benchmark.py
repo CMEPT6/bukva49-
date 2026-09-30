@@ -79,7 +79,7 @@ def analyze_operators(exhaustive: bool = False) -> dict:
     print(f"  • {LABELS['decision']}: {n_decision}/49")
     print(f"  • {LABELS['log_only']}: {n_log}/49")
     print(f"  • {LABELS['noop']}: {n_noop}/49")
-    print(f"    Честный вывод: Активны {n_decision + n_log} операторов ({n_decision} логики + {n_log} журнала/служебных).")
+    print(f"    Честный вывод: {n_decision} влияют на решение, {n_log} только пишут в журнал.")
     print(f"    Остальные {n_noop} не влияют на состояние при текущем распределении задач make_tasks.")
 
     return {

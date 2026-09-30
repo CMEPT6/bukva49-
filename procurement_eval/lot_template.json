@@ -1,0 +1,28 @@
+[
+ {
+  "id": "R001",
+  "synthetic": false,
+  "source_url": "ссылка на лот на портале",
+  "method": "способ закупки (запрос ценовых предложений, конкурс, электронный магазин ...)",
+  "rules_version": "какая редакция Правил действовала на дату объявления лота",
+  "trap": "что в лоте может сбить систему (демпинг, рабочие дни, НДС, неподтверждённый поставщик ...)",
+  "annotators": ["разметчик 1", "разметчик 2"],
+  "text": "ВСТАВЬТЕ: текст объявления и требования технической спецификации, как есть, без правки",
+  "offers_text": "ВСТАВЬТЕ: поданные предложения, как есть (таблицей или текстом)",
+  "gold": {
+   "constraints": {
+    "max_days": null,
+    "max_budget": null,
+    "require_confirmed": true,
+    "dumping_threshold_pct": null,
+    "reference_price": null,
+    "allow_dumping_with_deposit": false
+   },
+   "quotes": {"max_days": "дословная цитата из text, если max_days не null"},
+   "candidates": [
+    {"id": "А", "name": "А", "price": 0, "delivery": 0, "days": null, "confirmed": true}
+   ],
+   "winner_id": null
+  }
+ }
+]
